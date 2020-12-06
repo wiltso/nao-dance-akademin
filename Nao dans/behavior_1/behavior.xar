@@ -32,7 +32,7 @@
                     <Diagram />
                   </BehaviorKeyframe>
                 </BehaviorLayer>
-                <ActuatorList model="Nao">
+                <ActuatorList model="nao">
                   <ActuatorCurve name="value" actuator="HeadPitch" mute="0" unit="0">
                     <Key frame="10" value="-9.44394" />
                     <Key frame="75" value="15.473" />
@@ -503,6 +503,158 @@
                   </ActuatorCurve>
                 </ActuatorList>
               </Timeline>
+            </Box>
+            <Box name="Speech to text" id="2" localization="8" tooltip="" x="82" y="450">
+              <bitmap>media/images/box/box-python-script.png</bitmap>
+              <script language="4">
+                <content>
+                  <![CDATA[class MyClass(GeneratedClass):
+    def __init__(self):
+        GeneratedClass.__init__(self)
+
+    def onLoad(self):
+        #put initialization code here
+        pass
+
+    def onUnload(self):
+        #put clean-up code here
+        pass
+
+    def onInput_onStart(self):
+        #self.onStopped() #activate the output of the box
+        pass
+
+    def onInput_onStop(self):
+        self.onUnload() #it is recommended to reuse the clean-up as the box is stopped
+        self.onStopped() #activate the output of the box
+
+from __future__ import division
+import websockets
+import json
+import pyaudio
+from google.cloud.speech import enums
+import websockets
+import json
+import threading
+from six.moves import queue
+from google.cloud import speech
+from google.cloud.speech import types
+from google.api_core.exceptions import OutOfRange
+
+FORMAT = pyaudio.paInt16
+CHANNELS = 1
+RATE = 44100
+CHUNK = int(RATE / 10)
+
+audio = pyaudio.PyAudio()
+
+stream = audio.open(
+    format=FORMAT,
+    channels=CHANNELS,
+    rate=RATE,
+    input=True,
+    frames_per_buffer=CHUNK
+)
+
+
+class SpeechStreamToText(object):
+    def __init__(self, **kwargs):
+        # Default configs
+        self.buff = queue.Queue()
+        self.streaming_config = None
+        self.client = speech.SpeechClient()
+        self.encoding = enums.RecognitionConfig.AudioEncoding.LINEAR16
+        self.language = "sv-SE"
+        self.rate = 16000
+        self.closed = True
+        self.transcript = None
+
+        # Loads configs from kwargs
+        for kwarg in kwargs:
+            setattr(self, kwarg, kwargs[kwarg])
+
+        self.start()
+
+    def start(self):
+        threading.Thread(target=self.process).start()
+
+    def get_stream_config(self):
+        if self.streaming_config:
+            return self.streaming_config
+        config = types.RecognitionConfig(
+            encoding=self.encoding,
+            sample_rate_hertz=self.rate,
+            language_code=self.language,
+            model='command_and_search'
+        )
+        self.streaming_config = types.StreamingRecognitionConfig(
+            config=config,
+            interim_results=False,
+            single_utterance=False)
+        return self.streaming_config
+
+    def process(self):
+        requests = (types.StreamingRecognizeRequest(audio_content=content)
+                    for content in self.stream_generator())
+
+        responses = self.client.streaming_recognize(self.get_stream_config(), requests)
+        try:
+            self.response_loop(responses)
+        except OutOfRange:
+            # If mic is input is turned off program will shut down
+            pass
+        except Exception as e:
+            self.start()
+
+    def response_loop(self, responses):
+        for response in responses:
+            if not response.results:
+                continue
+            result = response.results[0]
+            if not result.alternatives:
+                continue
+            transcript = result.alternatives[0].transcript
+            if result.is_final:
+                self.transcript = transcript
+
+    def stream_generator(self):
+        while not self.closed:
+            chunk = self.buff.get()
+            if chunk is None:
+                return
+            data = [chunk]
+            while True:
+                try:
+                    chunk = self.buff.get(block=False)
+                    if chunk is None:
+                        return
+                    data.append(chunk)
+                except queue.Empty:
+                    break
+            yield b''.join(data)
+
+    def write(self, data):
+        self.buff.put(data)
+
+
+def audio_processor():
+    transcoder = SpeechStreamToText(rate=RATE)
+    while True:
+        transcoder.write(stream.read(CHUNK))
+        transcoder.closed = False
+        if transcoder.transcript:
+            # Do move here
+            print(transcoder.transcript)
+            transcoder.transcript = None
+
+
+audio_processor()]]>
+                </content>
+              </script>
+              <Input name="onLoad" type="1" type_size="1" nature="0" inner="1" tooltip="Signal sent when diagram is loaded." id="1" />
+              <Input name="onStart" type="1" type_size="1" nature="2" inner="0" tooltip="Box behavior starts when a signal is received on this input." id="2" />
+              <Input name="onStop" type="1" type_size="1" nature="3" inner="0" tooltip="Box behavior stops when a signal is received on this input." id="3" />
+              <Output name="onStopped" type="1" type_size="1" nature="1" inner="0" tooltip="Signal sent when box behavior is finished." id="4" />
             </Box>
           </Diagram>
         </BehaviorKeyframe>
